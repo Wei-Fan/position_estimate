@@ -68,7 +68,7 @@ FindCircles::FindCircles()
 
 void FindCircles::writeData()
 {
-	/*save for evaluating the error of distant*/
+	/*save for evaluating the error of dsistant*/
 	Mat distantm = Mat(DATA_SIZE, 2, CV_64FC1, distant);
 	Mat posem = Mat(DATA_SIZE, 3, CV_64FC1, pose);
 	ofstream f1("/home/wade/catkin_ws/src/find_circles/test_file/distant.csv");
@@ -113,6 +113,7 @@ void FindCircles::imageCallback(const sensor_msgs::Image &msg)
 
 void FindCircles::image_process(Mat img)
 {
+	ros::Rate loop_rate(10);
 	/*evaluation*/
 	/*if (data_count == DATA_SIZE)
 	{
@@ -140,6 +141,8 @@ void FindCircles::image_process(Mat img)
 		destroyWindow("monitor0");*/
 	if (char(waitKey(1)) == 'o')
 		destroyWindow("monitor1");
+	
+	loop_rate.sleep();
 }
 
 void FindCircles::find_green(Mat &img, Mat imgThresholded)

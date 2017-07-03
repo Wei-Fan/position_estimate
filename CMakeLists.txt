@@ -140,6 +140,7 @@ include_directories(
 # add_executable(position_estimate_node src/position_estimate_node.cpp)
 add_executable(find_circle src/find_circle.cpp)
 add_executable(pos_estimate src/pos_estimate.cpp)
+add_executable(pos_test src/pos_test.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
@@ -151,6 +152,7 @@ add_executable(pos_estimate src/pos_estimate.cpp)
 # )
 target_link_libraries(find_circle ${catkin_LIBRARIES})
 target_link_libraries(pos_estimate ${catkin_LIBRARIES})
+target_link_libraries(pos_test ${catkin_LIBRARIES})
 
 #############
 ## Install ##

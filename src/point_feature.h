@@ -183,7 +183,6 @@ int p_feature_calculate(vector<float> &points_x, vector<float> &points_y, float 
     for(int i = 0; i < num; i++)
     {
         feature_vectors.push_back(vector<float>(dimension,0.0));
-
     }
 
     float sthreshold = threshold * threshold;
