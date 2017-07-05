@@ -20,7 +20,7 @@ using namespace std;
 
 #define MEASURE_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/measure_position.csv"
 #define FEATURE_VEC_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/feature_vectors.csv"
-#define POINT_NUM 10
+#define POINT_NUM 7
 
 class Pos_Estimate
 {
@@ -30,14 +30,16 @@ private:
 	ros::NodeHandle node;
 	ros::Subscriber green_sub;
 	ros::Subscriber red_sub;
+	ros::Subscriber odometry_sub;
 	ros::Publisher pos_pub;
 
 	void greenCallback(const geometry_msgs::Point &msg);
 	void redCallback(const position_estimate::points &msg);
+	//void odometryCallback(const ardrone_autonomy::)
 	bool read_csv(char *filepath, Mat &image);
 
-	Mat measured_points = Mat(Size(POINT_NUM,2), CV_32FC1);
-	Mat feature_vectors = Mat(Size(POINT_NUM,30), CV_32FC1);
+	Mat measured_points = Mat(Size(2, POINT_NUM), CV_32FC1);
+	Mat feature_vectors = Mat(Size(30,POINT_NUM), CV_32FC1);
 	bool isGreenFound;
 	int current_point;
 	geometry_msgs::Point current_pos;
@@ -45,9 +47,9 @@ private:
 
 Pos_Estimate::Pos_Estimate()
 {
-	current_point = 0;
 	green_sub = node.subscribe("green_point", 1, &Pos_Estimate::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Pos_Estimate::redCallback, this);
+	//odometry_sub = node.subscribe("/ardrone/odometry", 1, )
 	pos_pub = node.advertise<geometry_msgs::Point>("ardrone_position", 1000);
 	read_csv(MEASURE_POS_PATH, measured_points);
 	read_csv(FEATURE_VEC_PATH, feature_vectors);
@@ -69,10 +71,25 @@ void Pos_Estimate::redCallback(const position_estimate::points &msg)
 		x.push_back(msg.point[i].x);
 		y.push_back(msg.point[i].y);
 	}
+	//cout << "-----------------------------------\n";
 	//cout << Mat(x) << endl << Mat(y) << endl;
 	p_feature_extraction(x, y, 30, red_feature);
 
-	/*convert Mat to 2D vector*/
+	/*a straight line or not*/
+	bool line_flag = 0;
+	vector<int> c;
+	for (int i = 0; i < red_feature.size(); ++i)
+	{
+		if (red_feature[i] != 0)
+			c.push_back(i);
+	}
+	if (c.size() == 2 && c.back()-c.front() == 15)
+	{
+		line_flag = 1;
+		ros::spin();
+	}
+
+	/*convert feature vectors to 2D vector*/
 	vector<vector<float> > feature_vec(POINT_NUM);
 	for (int i = 0; i < feature_vectors.rows; ++i)
 	{
@@ -84,21 +101,46 @@ void Pos_Estimate::redCallback(const position_estimate::points &msg)
 
 	/*get the current point number by comparing feature vector distances*/
 	vector<float> distant;
+	vector<int> distant_num;
 	float angle;
 	for (int i = 0; i < feature_vec.size(); ++i)
-		distant.push_back(p_feature_sdistance(feature_vec[i], red_feature, 60, angle));
-	current_pos.z = angle;
-	float min = distant[0];
-	current_point = 0;
-	for (int i = 1; i < distant.size(); ++i)
 	{
-		if (distant[i] < min)
-			current_point = i;
+		distant.push_back(p_feature_sdistance(feature_vec[i], red_feature, 30, angle));
+		distant_num.push_back(i);
 	}
+	current_pos.z = angle;
 
-	current_pos.x = msg.point[current_point].x;
-	current_pos.y = msg.point[current_point].y;
-	pos_pub.publish(current_pos);
+	/*find the most 2 possible points*/
+	for (int i = 0; i < POINT_NUM; ++i)
+	{
+		for (int j = 0; j < POINT_NUM-i-1; ++j)
+		{
+			if (distant[j] > distant[j+1])
+			{
+				float tmp = distant[j];
+				int tmp_num = distant_num[j];
+				distant[j] = distant[j+1];
+				distant_num[j] = distant_num[j+1];
+				distant[j+1] = tmp;
+				distant_num[j+1] = tmp_num;
+			}
+		}
+	}
+	/*condition for using feature match*/
+	cout << "--------------------------------------\n";
+	if (fabs(distant[0]-distant[1]) <= 0.4)
+		ros::spin();
+	else {
+		//cout << msg.point[0].x << '\t' << msg.point[0].y << endl;
+		cout << "current point : " << distant_num[0] << '\t' << distant_num[1] << endl;
+		cout << "distant : " << distant[0] << '\t' << distant[1] << endl;
+		
+		/*publish current position*/
+		current_pos.x = -msg.point[0].x + measured_points.at<float>(distant_num[0],0);
+		current_pos.y = -msg.point[0].y + measured_points.at<float>(distant_num[0],1);
+		cout << current_pos.x << '\t' << current_pos.y << endl;
+		//pos_pub.publish(current_pos);
+	}
 }
 
 bool Pos_Estimate::read_csv(char *filepath, Mat &image)  
@@ -110,32 +152,25 @@ bool Pos_Estimate::read_csv(char *filepath, Mat &image)
     	cout << "CSV read fail" << endl;
     	return false;
 	}  
-      
-    int nc;
-    int eolElem = image.cols - 1;//每行最后一个元素的下标  
+
+    int nc = image.cols*image.rows;
+    int eolElem = image.cols - 1;
     int elemCount = 0;  
-    if (image.isContinuous())  
-    {     
-        nc= image.cols*image.rows;// then no padded pixels     
-        image.rows= 1;// it is now a 1D array     
-    }    
-    for (int i = 0; i<image.rows; i++)  
-    {  
-        float* data = (float*)image.ptr<ushort>(i);    
-        for (int j = 0; j < nc; j++)  
-        {    
-            if(elemCount == eolElem){  
-                getline(file,pixel,'\n');//任意地读入，直到读到delim字符 '\n',delim字符不会被放入buffer中  
-                data[j] = (float)atof(pixel.c_str());//将字符串str转换成一个双精度数值并返回结果  
-                elemCount = 0;//计数器置零  
-            }  
-            else{  
-                getline(file,pixel,',');//任意地读入，直到读到delim字符 ','delim字符不会被放入buffer中  
-                data[j] = (float)atof(pixel.c_str());//将字符串str转换成一个双精度数值并返回结果  
-                elemCount++;  
-            }  
-        }                    
-    }  
+
+	for (int j = 0; j < nc; j++)  
+    {    
+        if(elemCount == eolElem){  
+            getline(file,pixel,'\n');
+            image.at<float>((int)(j/image.cols), elemCount) = (float)atof(pixel.c_str());
+            //cout << (int)(j/image.cols) << '\t' << elemCount << '\t' << image.at<float>((int)(j/image.cols), elemCount) << endl;
+            elemCount = 0;
+        } else {  
+            getline(file,pixel,',');
+            image.at<float>((int)(j/image.cols), elemCount) = (float)atof(pixel.c_str());
+      	    //cout << (int)(j/image.cols) << '\t' << elemCount << '\t' << image.at<float>((int)(j/image.cols), elemCount) << endl;
+            elemCount++;  
+        }  
+	}
     return true;  
 }
 

@@ -49,7 +49,7 @@ Test::Test()
 	green_sub = node.subscribe("green_point", 1, &Test::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Test::redCallback, this);
 	test_red_pub = node.advertise<position_estimate::points>("red_real_points", 1000);
-	pos_estimate_test();
+	//pos_estimate_test();
 }
 
 void Test::pos_estimate_test()
@@ -84,12 +84,12 @@ void Test::get_feature_vector()
 	vector<vector<float> > feature_vectors;
 	vector<float> x;
 	vector<float> y;
-	float threshold;//determined by image size and height
+	float threshold = 0.45;//determined by image size and height
 
 	/*measure and input points' coordinate according to points in fleid*/
-	Mat xy = Mat(Size(2,3), CV_32FC1);
+	Mat xy = Mat(Size(2,7), CV_32FC1);
 	read_csv(measure_pos, xy);
-	//cout << format(xy, Formatter::FMT_CSV) << endl;
+	cout << format(xy, Formatter::FMT_CSV) << endl;
 	for (int i = 0; i < xy.rows; ++i)
 	{
 		x.push_back(xy.at<Vec2f>(i,0)[0]);
@@ -129,31 +129,28 @@ bool Test::read_csv(char *filepath, Mat &image)
     	return false;
 	}  
       
-    int nc;
+    int nc = image.cols*image.rows;
     int eolElem = image.cols - 1;//每行最后一个元素的下标  
     int elemCount = 0;  
-    if (image.isContinuous())  
+    /*if (image.isContinuous())  
     {     
         nc= image.cols*image.rows;// then no padded pixels     
         image.rows= 1;// it is now a 1D array     
-    }    
-    for (int i = 0; i<image.rows; i++)  
-    {  
-        float* data = (float*)image.ptr<ushort>(i);    
-        for (int j = 0; j < nc; j++)  
-        {    
-            if(elemCount == eolElem){  
-                getline(file,pixel,'\n');//任意地读入，直到读到delim字符 '\n',delim字符不会被放入buffer中  
-                data[j] = (float)atof(pixel.c_str());//将字符串str转换成一个双精度数值并返回结果  
-                elemCount = 0;//计数器置零  
-            }  
-            else{  
-                getline(file,pixel,',');//任意地读入，直到读到delim字符 ','delim字符不会被放入buffer中  
-                data[j] = (float)atof(pixel.c_str());//将字符串str转换成一个双精度数值并返回结果  
-                elemCount++;  
-            }  
-        }                    
-    }  
+    }*/
+	for (int j = 0; j < nc; j++)  
+    {    
+        if(elemCount == eolElem){  
+            getline(file,pixel,'\n');//任意地读入，直到读到delim字符 '\n',delim字符不会被放入buffer中  
+            image.at<float>((int)(j/image.cols), elemCount) = (float)atof(pixel.c_str());
+            //cout << (int)(j/image.cols) << '\t' << elemCount << '\t' << image.at<float>((int)(j/image.cols), elemCount) << endl;
+            elemCount = 0;//计数器置零  
+        } else {  
+            getline(file,pixel,',');//任意地读入，直到读到delim字符 ','delim字符不会被放入buffer中  
+            image.at<float>((int)(j/image.cols), elemCount) = (float)atof(pixel.c_str());
+      	    //cout << (int)(j/image.cols) << '\t' << elemCount << '\t' << image.at<float>((int)(j/image.cols), elemCount) << endl;
+            elemCount++;  
+        }  
+	}
     return true;  
 }
 

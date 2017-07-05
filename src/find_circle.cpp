@@ -126,7 +126,7 @@ void FindCircles::image_process(Mat img)
 	measurement(ardrone_pos.x, ardrone_pos.y, current_pos[0], current_pos[1], pitch, roll, height);
 	ardrone_pos.x = -ardrone_pos.x + image_size.width/2;
 	ardrone_pos.y = -ardrone_pos.y + image_size.height/2 - 38;
-	cout << "ardrone_pos in image: " << ardrone_pos.x << '\t' << ardrone_pos.y << endl;
+	//cout << "ardrone_pos in image: " << ardrone_pos.x << '\t' << ardrone_pos.y << endl;
 	circle(img, ardrone_pos, 10, Scalar(0, 255, 255), 1, 8);
 
 	/*color abstract*/
@@ -250,7 +250,7 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 		{
 			Rect r = boundingRect(Mat(*it));
 			rb.push_back(r);
-			rectangle(img, r, Scalar(0, 255, 0), 3);//testing
+			//rectangle(img, r, Scalar(0, 255, 0), 3);//testing
 			++it;
 		}
 	}
@@ -259,8 +259,8 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 	{
 		for (int i = 1; i < rb.size(); ++i)
 		{
-			double d0 = pow(0.5*(rb[0].tl().x+rb[0].br().x-img.rows),2)+pow(0.5*(rb[0].tl().y+rb[0].br().y-img.cols),2);
-			double di = pow(0.5*(rb[i].tl().x+rb[i].br().x-img.rows),2)+pow(0.5*(rb[i].tl().y+rb[i].br().y-img.cols),2);
+			double d0 = pow(0.5*(rb[0].tl().x+rb[0].br().x-img.cols),2)+pow(0.5*(rb[0].tl().y+rb[0].br().y-img.rows),2);
+			double di = pow(0.5*(rb[i].tl().x+rb[i].br().x-img.cols),2)+pow(0.5*(rb[i].tl().y+rb[i].br().y-img.rows),2);
 		
 			if (d0 > di)
 			{
@@ -270,7 +270,7 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 				rb[i] = tmp;
 			}
 		}
-		
+		rectangle(img, rb[0], Scalar(0, 255, 0), 3);
 		for (int i = 0; i < rb.size(); ++i)
 		{
 			geometry_msgs::Point data;
@@ -278,15 +278,16 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 			data.y = 0.5*(rb[i].tl().y + rb[i].br().y);
 			//cout << "circle center: " << midP.x << '\t' << midP.y << endl;
 			geometry_msgs::Point img_data;
-			img_data.x = data.x - 0.5*img.rows;
-			img_data.y = data.y - 0.5*img.cols;
+			img_data.x = data.x - 0.5*img.cols;
+			img_data.y = data.y - 0.5*img.rows;
 			image_msg.point.push_back(img_data);
 
 			geometry_msgs::Point dist;
-			data.x -= ardrone_pos.x;
-			data.y -= ardrone_pos.y;
+			data.x = data.x - ardrone_pos.x;
+			data.y = ardrone_pos.y - data.y;
 			revmeasurement(data.x, data.y, dist.x, dist.y, pitch, roll, height);
 			real_msg.point.push_back(dist);
+			cout << real_msg.point[0].x << '\t' << real_msg.point[0].y << endl;
 		}
 		red_image_pub.publish(image_msg);
 		red_real_pub.publish(real_msg);	
