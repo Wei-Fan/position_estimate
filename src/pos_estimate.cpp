@@ -30,29 +30,61 @@ private:
 	ros::NodeHandle node;
 	ros::Subscriber green_sub;
 	ros::Subscriber red_sub;
-	ros::Subscriber odometry_sub;
+	ros::Subscriber pos_sub;
+	ros::Subscriber correct_sub;
 	ros::Publisher pos_pub;
 
 	void greenCallback(const geometry_msgs::Point &msg);
 	void redCallback(const position_estimate::points &msg);
-	//void odometryCallback(const ardrone_autonomy::)
+	void posCallback(const ardrone_autonomy::Navdata &msgs);
+	void correctCallback(const geometry_msgs::Point &msgs);
 	bool read_csv(char *filepath, Mat &image);
 
 	Mat measured_points = Mat(Size(2, POINT_NUM), CV_32FC1);
 	Mat feature_vectors = Mat(Size(30,POINT_NUM), CV_32FC1);
 	bool isGreenFound;
+	bool isRenew;
 	int current_point;
 	geometry_msgs::Point current_pos;
+	float delt;
+	float beta = 0.1;
+	geometry_msgs::Point preset_pos;
 };
 
 Pos_Estimate::Pos_Estimate()
 {
 	green_sub = node.subscribe("green_point", 1, &Pos_Estimate::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Pos_Estimate::redCallback, this);
-	//odometry_sub = node.subscribe("/ardrone/odometry", 1, )
+	pos_sub = node.subscribe("/ardrone/navdata", 1, &Pos_Estimate::posCallback, this);
+	correct_sub = node.subscribe("delt", 1, &Pos_Estimate::correctCallback, this);
 	pos_pub = node.advertise<geometry_msgs::Point>("ardrone_position", 1000);
 	read_csv(MEASURE_POS_PATH, measured_points);
 	read_csv(FEATURE_VEC_PATH, feature_vectors);
+	isRenew = false;
+}
+
+void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
+{
+	static bool start = true;
+	static float last_time = 0;
+	if (start)
+	{
+		start = false;
+		last_time = msg.tm;
+		current_pos.x = 0;
+		current_pos.y = 0;
+	}
+	float dt = (msg.tm - last_time)/1000000.0;
+	last_time = msg.tm;
+	current_pos.x += msg.vx * dt/1000.0;
+	current_pos.y += msg.vy * dt/1000.0;
+	pos_pub.publish(current_pos);
+}
+
+void Pos_Estimate::correctCallback(const geometry_msgs::Point &msg)
+{
+	current_pos.x = current_pos.x - beta * (current_pos.x - preset_pos.x - msg.x);
+	current_pos.y = current_pos.y - beta * (current_pos.y - preset_pos.y - msg.y);
 }
 
 void Pos_Estimate::greenCallback(const geometry_msgs::Point &msg)
@@ -62,6 +94,8 @@ void Pos_Estimate::greenCallback(const geometry_msgs::Point &msg)
 
 void Pos_Estimate::redCallback(const position_estimate::points &msg)
 {
+	if (isRenew == false)
+		ros::spin();
 	/*get the feature vector according to image*/
 	vector<float> x;
 	vector<float> y;
@@ -141,6 +175,7 @@ void Pos_Estimate::redCallback(const position_estimate::points &msg)
 		cout << current_pos.x << '\t' << current_pos.y << endl;
 		//pos_pub.publish(current_pos);
 	}
+	isRenew = false;
 }
 
 bool Pos_Estimate::read_csv(char *filepath, Mat &image)  

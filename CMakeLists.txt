@@ -141,6 +141,7 @@ include_directories(
 add_executable(find_circle src/find_circle.cpp)
 add_executable(pos_estimate src/pos_estimate.cpp)
 add_executable(pos_test src/pos_test.cpp)
+add_executable(odometry_pos_estimate src/odometry_pos_estimate.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
@@ -153,6 +154,7 @@ add_executable(pos_test src/pos_test.cpp)
 target_link_libraries(find_circle ${catkin_LIBRARIES})
 target_link_libraries(pos_estimate ${catkin_LIBRARIES})
 target_link_libraries(pos_test ${catkin_LIBRARIES})
+target_link_libraries(odometry_pos_estimate ${catkin_LIBRARIES})
 
 #############
 ## Install ##

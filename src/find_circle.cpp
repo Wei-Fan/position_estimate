@@ -34,7 +34,8 @@ private:
 	ros::Subscriber navdata_sub;
 	ros::Publisher green_pub;
 	ros::Publisher red_real_pub;
-	ros::Publisher red_image_pub; 
+	ros::Publisher red_image_pub;
+	ros::Publisher correct_pub;
 
 	void imageCallback(const sensor_msgs::Image &msg);
 	void altitudeCallback(const ardrone_autonomy::navdata_altitude &msg);
@@ -42,6 +43,7 @@ private:
 	void image_process(Mat img);
 	void find_green(Mat &img, Mat imgThresholded);
 	void find_red(Mat &img, Mat imgThresholded);
+	void line_fitting(position_estimate::points reds, double &k, double &b, double &r, geometry_msgs::Point &foot);
 
 	int data_count = 0;
 	double height;
@@ -62,6 +64,7 @@ FindCircles::FindCircles()
 	green_pub = node.advertise<geometry_msgs::Point>("green_point", 1000); //the message of centers is uncertain.
 	red_real_pub = node.advertise<position_estimate::points>("red_real_points", 1000);
 	red_image_pub = node.advertise<position_estimate::points>("red_image_points", 1000);
+	correct_pub = node.advertise<geometry_msgs::Point>("delt", 1000);
 	//Mat src_img = imread("/home/wade/catkin_ws/src/find_circles/src/t.jpg", 1);//testing
 	//image_process(src_img);//testing 
 }
@@ -283,15 +286,59 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 			image_msg.point.push_back(img_data);
 
 			geometry_msgs::Point dist;
-			data.x = data.x - ardrone_pos.x;
-			data.y = ardrone_pos.y - data.y;
+			data.y = ardrone_pos.x - data.x;
+			data.x = ardrone_pos.y - data.y;
 			revmeasurement(data.x, data.y, dist.x, dist.y, pitch, roll, height);
 			real_msg.point.push_back(dist);
 			cout << real_msg.point[0].x << '\t' << real_msg.point[0].y << endl;
 		}
 		red_image_pub.publish(image_msg);
 		red_real_pub.publish(real_msg);	
+
+		/*part of correction*/
+		double k;
+		double b;
+		double r;
+		geometry_msgs::Point foot;
+		line_fitting(real_msg, k, b, r, foot);
+		if (fabs(r) >= 0.5)
+			correct_pub.publish(foot);
 	}
+}
+
+void FindCircles::line_fitting(position_estimate::points reds, double &k, double &b, double &r, geometry_msgs::Point &foot)
+{
+	double xmean = 0;
+	double ymean = 0;
+	double x2mean = 0;
+	double y2mean = 0;
+	double xymean = 0;
+	for (int i = 0; i < reds.point.size(); ++i)
+	{
+		xmean += reds.point[i].x;
+		ymean += reds.point[i].y;
+		x2mean += reds.point[i].x*reds.point[i].x;
+		y2mean += reds.point[i].y*reds.point[i].y;
+		xymean += reds.point[i].x*reds.point[i].y;
+	}
+	xmean /= reds.point.size();
+	ymean /= reds.point.size();
+	x2mean /= reds.point.size();
+	y2mean /= reds.point.size();
+	xymean /= reds.point.size();
+
+	double tmp;
+	if (tmp = x2mean -xmean*xmean)
+	{
+		k = (xymean -xmean*ymean)/tmp;
+		b = ymean -k*xmean;
+	} else {
+		k = 1;
+		b = 0;
+	}
+	r = (xymean - xmean*ymean)/sqrt((x2mean - xmean * xmean) * (y2mean - ymean * ymean));
+	foot.x = b * sqrt(1/(1+k*k))*sqrt(1/(1+k*k));
+	foot.y = k * foot.x + b; 
 }
 
 void FindCircles::measurement(double &x, double &y, double u, double v, double pitch, double roll, double h)
