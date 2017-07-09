@@ -7,6 +7,7 @@
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
 #include <geometry_msgs/Point.h>
+#include "std_msgs/Empty.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <vector>
@@ -33,6 +34,7 @@ private:
 	ros::Subscriber pos_sub;
 	ros::Subscriber correct_sub;
 	ros::Publisher pos_pub;
+	ros::Publisher renew_pub;
 
 	void greenCallback(const geometry_msgs::Point &msg);
 	void redCallback(const position_estimate::points &msg);
@@ -58,6 +60,7 @@ Pos_Estimate::Pos_Estimate()
 	pos_sub = node.subscribe("/ardrone/navdata", 1, &Pos_Estimate::posCallback, this);
 	correct_sub = node.subscribe("delt", 1, &Pos_Estimate::correctCallback, this);
 	pos_pub = node.advertise<geometry_msgs::Point>("ardrone_position", 1000);
+	renew_pub = node.advertise<std_msgs::Empty>("is_renew", 1000);
 	read_csv(MEASURE_POS_PATH, measured_points);
 	read_csv(FEATURE_VEC_PATH, feature_vectors);
 	isRenew = false;
@@ -76,6 +79,13 @@ void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
 	}
 	float dt = (msg.tm - last_time)/1000000.0;
 	last_time = msg.tm;
+
+	if (msg.vx*msg.vx+msg.vy*msg.vy <= 0.01)
+	{
+		isRenew = true;
+		ros::spin();
+	}
+
 	current_pos.x += msg.vx * dt/1000.0;
 	current_pos.y += msg.vy * dt/1000.0;
 	pos_pub.publish(current_pos);
@@ -173,9 +183,11 @@ void Pos_Estimate::redCallback(const position_estimate::points &msg)
 		current_pos.x = -msg.point[0].x + measured_points.at<float>(distant_num[0],0);
 		current_pos.y = -msg.point[0].y + measured_points.at<float>(distant_num[0],1);
 		cout << current_pos.x << '\t' << current_pos.y << endl;
-		//pos_pub.publish(current_pos);
+		pos_pub.publish(current_pos);
 	}
 	isRenew = false;
+	std_msgs::Empty e;
+	renew_pub.publish(e);
 }
 
 bool Pos_Estimate::read_csv(char *filepath, Mat &image)  

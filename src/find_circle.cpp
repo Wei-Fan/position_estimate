@@ -301,6 +301,9 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 		double r;
 		geometry_msgs::Point foot;
 		line_fitting(real_msg, k, b, r, foot);
+		cout << r <<endl;
+		cout << "y = " << k << "x + " << b;
+		cout << "foot : " << foot.x << '\t' << foot.y << endl;
 		if (fabs(r) >= 0.5)
 			correct_pub.publish(foot);
 	}

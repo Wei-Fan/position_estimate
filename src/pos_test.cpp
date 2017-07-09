@@ -18,8 +18,9 @@
 using namespace cv;
 using namespace std;
 
-#define measure_pos "/home/wade/catkin_ws/src/position_estimate/test_file/measure_position.csv"
-#define feature_vec "/home/wade/catkin_ws/src/position_estimate/test_file/feature_vectors.csv"
+#define MEASURE_POS "/home/wade/catkin_ws/src/position_estimate/test_file/measure_position.csv"
+#define FEATURE_VEC "/home/wade/catkin_ws/src/position_estimate/test_file/feature_vectors.csv"
+#define FIELD_MEASURE "/home/wade/catkin_ws/src/position_estimate/test_file/field_measure.csv"
 
 class Test
 {
@@ -38,6 +39,7 @@ private:
 	void pos_estimate_test();
 	void find_circle_test();
 	void get_feature_vector();
+	void get_measure_point();
 
 	bool save_csv(const vector<vector<float> > &v, char *filename);
 	bool read_csv(char *filepath, Mat &image);
@@ -45,7 +47,8 @@ private:
 
 Test::Test()
 {
-	get_feature_vector();
+	//get_feature_vector();
+	get_measure_point();
 	green_sub = node.subscribe("green_point", 1, &Test::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Test::redCallback, this);
 	test_red_pub = node.advertise<position_estimate::points>("red_real_points", 1000);
@@ -79,6 +82,27 @@ void Test::find_circle_test()
 
 }
 
+void Test::get_measure_point()
+{
+	Mat xy = Mat(Size(2,69), CV_32FC1);
+	read_csv(FIELD_MEASURE, xy);
+	//cout << format(xy, Formatter::FMT_CSV) << endl;
+	vector<vector<float> > field_vectors;
+	field_vectors.resize(69);
+	for (int i = 0; i < 69; ++i)
+		field_vectors[i].resize(2);
+	for (int i = 0; i < xy.rows; ++i)
+	 {
+	 	float a = xy.at<Vec2f>(i,0)[0];
+	 	//cout << a << endl;
+	 	float b = xy.at<Vec2f>(i,0)[1];
+	 	field_vectors[i][0] = (a*a + 1.76*1.76 - b*b) / (2*1.76);
+	 	field_vectors[i][1] = b / fabs(b) * sqrt(a*a - field_vectors[i][0]*field_vectors[i][0]);
+	 } 
+	 save_csv(field_vectors, MEASURE_POS);
+	 cout << "save!\n";
+}
+
 void Test::get_feature_vector()
 {
 	vector<vector<float> > feature_vectors;
@@ -88,7 +112,7 @@ void Test::get_feature_vector()
 
 	/*measure and input points' coordinate according to points in fleid*/
 	Mat xy = Mat(Size(2,7), CV_32FC1);
-	read_csv(measure_pos, xy);
+	read_csv(MEASURE_POS, xy);
 	cout << format(xy, Formatter::FMT_CSV) << endl;
 	for (int i = 0; i < xy.rows; ++i)
 	{
@@ -98,7 +122,7 @@ void Test::get_feature_vector()
 	//cout << Mat(x) << "\n" << Mat(y) << endl;
     /*get the feature vectors*/
     p_feature_calculate(x, y, threshold, 30, feature_vectors);
-   	save_csv(feature_vectors, feature_vec);
+   	save_csv(feature_vectors, FEATURE_VEC);
 } 
 
 bool Test::save_csv(const vector<vector<float> > &v, char *filename)
