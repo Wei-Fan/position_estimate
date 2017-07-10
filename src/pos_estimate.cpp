@@ -8,6 +8,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <geometry_msgs/Point.h>
 #include "std_msgs/Empty.h"
+#include "std_msgs/Bool.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <vector>
@@ -19,9 +20,9 @@
 using namespace cv;
 using namespace std;
 
-#define MEASURE_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/measure_position.csv"
-#define FEATURE_VEC_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/feature_vectors.csv"
-#define POINT_NUM 7
+#define PRESET_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/preset_position.csv"
+#define FEATURE_VEC_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/preset_feature.csv"
+#define POINT_NUM 77
 
 class Pos_Estimate
 {
@@ -33,6 +34,7 @@ private:
 	ros::Subscriber red_sub;
 	ros::Subscriber pos_sub;
 	ros::Subscriber correct_sub;
+	ros::Subscriber bool_sub;
 	ros::Publisher pos_pub;
 	ros::Publisher renew_pub;
 
@@ -40,11 +42,13 @@ private:
 	void redCallback(const position_estimate::points &msg);
 	void posCallback(const ardrone_autonomy::Navdata &msgs);
 	void correctCallback(const geometry_msgs::Point &msgs);
+	void isRenewCallback(const std_msgs::Bool &msg);
 	bool read_csv(char *filepath, Mat &image);
 
-	Mat measured_points = Mat(Size(2, POINT_NUM), CV_32FC1);
+	Mat preset_points = Mat(Size(2, POINT_NUM), CV_32FC1);
 	Mat feature_vectors = Mat(Size(30,POINT_NUM), CV_32FC1);
 	bool isGreenFound;
+	bool enableRenew;
 	bool isRenew;
 	int current_point;
 	geometry_msgs::Point current_pos;
@@ -59,11 +63,13 @@ Pos_Estimate::Pos_Estimate()
 	red_sub = node.subscribe("red_real_points", 1, &Pos_Estimate::redCallback, this);
 	pos_sub = node.subscribe("/ardrone/navdata", 1, &Pos_Estimate::posCallback, this);
 	correct_sub = node.subscribe("delt", 1, &Pos_Estimate::correctCallback, this);
+	bool_sub = node.subscribe("is_renew", 1, &Pos_Estimate::isRenewCallback, this);
 	pos_pub = node.advertise<geometry_msgs::Point>("ardrone_position", 1000);
-	renew_pub = node.advertise<std_msgs::Empty>("is_renew", 1000);
-	read_csv(MEASURE_POS_PATH, measured_points);
+	renew_pub = node.advertise<std_msgs::Empty>("is_success", 1000);
+	read_csv(PRESET_POS_PATH, preset_points);
 	read_csv(FEATURE_VEC_PATH, feature_vectors);
-	isRenew = false;
+	enableRenew = false;
+	isRenew = true;
 }
 
 void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
@@ -80,15 +86,20 @@ void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
 	float dt = (msg.tm - last_time)/1000000.0;
 	last_time = msg.tm;
 
-	if (msg.vx*msg.vx+msg.vy*msg.vy <= 0.01)
+	if (msg.vx*msg.vx+msg.vy*msg.vy <= 0.0025 && !isRenew)
 	{
-		isRenew = true;
+		enableRenew = true;
 		ros::spin();
 	}
 
 	current_pos.x += msg.vx * dt/1000.0;
 	current_pos.y += msg.vy * dt/1000.0;
 	pos_pub.publish(current_pos);
+}
+
+void Pos_Estimate::isRenewCallback(const std_msgs::Bool &msg)
+{
+	isRenew = msg.data;
 }
 
 void Pos_Estimate::correctCallback(const geometry_msgs::Point &msg)
@@ -104,7 +115,7 @@ void Pos_Estimate::greenCallback(const geometry_msgs::Point &msg)
 
 void Pos_Estimate::redCallback(const position_estimate::points &msg)
 {
-	if (isRenew == false)
+	if (enableRenew == false)
 		ros::spin();
 	/*get the feature vector according to image*/
 	vector<float> x;
@@ -180,12 +191,12 @@ void Pos_Estimate::redCallback(const position_estimate::points &msg)
 		cout << "distant : " << distant[0] << '\t' << distant[1] << endl;
 		
 		/*publish current position*/
-		current_pos.x = -msg.point[0].x + measured_points.at<float>(distant_num[0],0);
-		current_pos.y = -msg.point[0].y + measured_points.at<float>(distant_num[0],1);
+		current_pos.x = -msg.point[0].x + preset_points.at<float>(distant_num[0],0);
+		current_pos.y = -msg.point[0].y + preset_points.at<float>(distant_num[0],1);
 		cout << current_pos.x << '\t' << current_pos.y << endl;
 		pos_pub.publish(current_pos);
 	}
-	isRenew = false;
+	enableRenew = false;
 	std_msgs::Empty e;
 	renew_pub.publish(e);
 }
