@@ -21,7 +21,7 @@ using namespace std;
 #define MEASURE_POS "/home/wade/catkin_ws/src/position_estimate/test_file/measure_position.csv"
 #define FEATURE_VEC "/home/wade/catkin_ws/src/position_estimate/test_file/feature_vectors.csv"
 #define FIELD_MEASURE "/home/wade/catkin_ws/src/position_estimate/test_file/field_measure.csv"
-
+#define POINT_NUM 77
 class Test
 {
 public:
@@ -47,8 +47,8 @@ private:
 
 Test::Test()
 {
-	//get_feature_vector();
-	get_measure_point();
+	get_feature_vector();
+	//get_measure_point();
 	green_sub = node.subscribe("green_point", 1, &Test::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Test::redCallback, this);
 	test_red_pub = node.advertise<position_estimate::points>("red_real_points", 1000);
@@ -84,12 +84,12 @@ void Test::find_circle_test()
 
 void Test::get_measure_point()
 {
-	Mat xy = Mat(Size(2,69), CV_32FC1);
+	Mat xy = Mat(Size(2,POINT_NUM), CV_32FC1);
 	read_csv(FIELD_MEASURE, xy);
 	//cout << format(xy, Formatter::FMT_CSV) << endl;
 	vector<vector<float> > field_vectors;
-	field_vectors.resize(69);
-	for (int i = 0; i < 69; ++i)
+	field_vectors.resize(POINT_NUM);
+	for (int i = 0; i < POINT_NUM; ++i)
 		field_vectors[i].resize(2);
 	for (int i = 0; i < xy.rows; ++i)
 	 {
@@ -108,10 +108,10 @@ void Test::get_feature_vector()
 	vector<vector<float> > feature_vectors;
 	vector<float> x;
 	vector<float> y;
-	float threshold = 0.45;//determined by image size and height
+	float threshold = 0.3;//determined by image size and height
 
 	/*measure and input points' coordinate according to points in fleid*/
-	Mat xy = Mat(Size(2,7), CV_32FC1);
+	Mat xy = Mat(Size(2,POINT_NUM), CV_32FC1);
 	read_csv(MEASURE_POS, xy);
 	cout << format(xy, Formatter::FMT_CSV) << endl;
 	for (int i = 0; i < xy.rows; ++i)
