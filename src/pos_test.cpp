@@ -47,7 +47,7 @@ private:
 
 Test::Test()
 {
-	get_feature_vector();
+	//get_feature_vector();
 	//get_measure_point();
 	green_sub = node.subscribe("green_point", 1, &Test::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Test::redCallback, this);
@@ -101,6 +101,7 @@ void Test::get_measure_point()
 	 } 
 	 save_csv(field_vectors, MEASURE_POS);
 	 cout << "save!\n";
+
 }
 
 void Test::get_feature_vector()
@@ -185,7 +186,9 @@ void Test::greenCallback(const geometry_msgs::Point &msg)
 
 void Test::redCallback(const position_estimate::points &msg)
 {
-
+		cout << 'A' << endl;
+	 ros::spin();
+	 cout << 'B' << endl;
 }
 
 int main(int argc, char **argv)
