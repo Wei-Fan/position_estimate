@@ -32,6 +32,7 @@ private:
 	ros::Subscriber img_sub;
 	ros::Subscriber altitude_sub;
 	ros::Subscriber navdata_sub;
+	ros::Publisher blue_pub;
 	ros::Publisher yellow_pub;
 	ros::Publisher red_real_pub;
 	ros::Publisher red_image_pub;
@@ -41,6 +42,7 @@ private:
 	void altitudeCallback(const ardrone_autonomy::navdata_altitude &msg);
 	void navdataCallback(const ardrone_autonomy::Navdata &msg);
 	void image_process(Mat img);
+	void find_blue(Mat &img, Mat imgThresholded);
 	void find_yellow(Mat &img, Mat imgThresholded);
 	void find_red(Mat &img, Mat imgThresholded);
 	void line_fitting(position_estimate::points reds, double &k, double &b, double &r, geometry_msgs::Point &foot);
@@ -61,6 +63,7 @@ FindCircles::FindCircles()
 	img_sub = node.subscribe("/ardrone/image_raw", 1, &FindCircles::imageCallback, this);//"/ardrone/image_raw" "CamImage"
 	altitude_sub = node.subscribe("/ardrone/navdata_altitude", 1, &FindCircles::altitudeCallback, this);
 	navdata_sub = node.subscribe("/ardrone/navdata", 1, &FindCircles::navdataCallback, this);
+	blue_pub = node.advertise<geometry_msgs::Point>("blue_point", 1000);
 	yellow_pub = node.advertise<geometry_msgs::Point>("yellow_point", 1000); //the message of centers is uncertain.
 	red_real_pub = node.advertise<position_estimate::points>("red_real_points", 1000);
 	red_image_pub = node.advertise<position_estimate::points>("red_image_points", 1000);
@@ -135,11 +138,13 @@ void FindCircles::image_process(Mat img)
 	/*color abstract*/
 	Mat imgThresholded = Mat(image_size, CV_8UC1);
 	Mat img_cp = img.clone();
+	Mat img_cp2 = img.clone();
 
+	find_blue(img_cp2, imgThresholded);
 	find_yellow(img, imgThresholded);
 	find_red(img_cp, imgThresholded);
 	//imshow("monitor0", img);//testing
-	imshow("monitor1", img);//testing
+	imshow("monitor1", img_cp);//testing
 	/*if (char(waitKey(1)) == 'o')
 		destroyWindow("monitor0");*/
 	if (char(waitKey(1)) == 'o')
@@ -148,7 +153,7 @@ void FindCircles::image_process(Mat img)
 	loop_rate.sleep();
 }
 
-void FindCircles::find_yellow(Mat &img, Mat imgThresholded)
+void FindCircles::find_blue(Mat &img, Mat imgThresholded)
 {
 	for (int i = 0; i < img.rows; ++i)
 	{
@@ -157,7 +162,7 @@ void FindCircles::find_yellow(Mat &img, Mat imgThresholded)
 			int tmp0 = img.at<Vec3b>(i,j)[0];
 			int tmp1 = img.at<Vec3b>(i,j)[1];
 			int tmp2 = img.at<Vec3b>(i,j)[2];
-			if ((tmp2 > 180 && tmp2 < 255 && tmp1 > 120 && tmp1 < 255 && tmp0 > 80 && tmp0 < 180))
+			if ((tmp2 > 90 && tmp2 < 180 && tmp1 > 100 && tmp1 < 200 && tmp0 > 0 && tmp0 < 70))
 			//if (tmp2 > 120 && tmp2 < 255 && tmp1 > 0 && tmp1 < 80 && tmp0 > 0 && tmp0 < 80) //red
 			{
 				imgThresholded.at<uchar>(i,j) = 255;
@@ -174,9 +179,79 @@ void FindCircles::find_yellow(Mat &img, Mat imgThresholded)
 	erode(imgThresholded, imgThresholded, element);
 	dilate(imgThresholded, imgThresholded, element);
 	imgThresholded = 255 - imgThresholded;
-	/*imshow("yellow", imgThresholded);
+	imshow("blue", imgThresholded);
 	if (char(waitKey(1)) == 'o')
-		destroyWindow("yellow");*/
+		destroyWindow("blue");
+
+	//find contours
+	vector<vector<Point> > contours;
+	vector<Vec4i> hierarchy;
+	findContours(imgThresholded, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
+	
+	//erase unqualified contours
+	vector<vector<Point> >::iterator it = contours.begin();
+	while(it != contours.end())
+	{
+		if (contourArea(*it, true) < 200)
+			it = contours.erase(it);
+		else
+		{
+			Rect r = boundingRect(Mat(*it));
+			rectangle(img, r, Scalar(0, 255, 0), 3);//testing
+			++it;
+		}
+	}
+
+	
+	if (!contours.empty())
+	{
+		Rect rb = boundingRect(Mat(contours[0]));
+		geometry_msgs::Point midP;
+		midP.x = 0.5*(rb.tl().x + rb.br().x);
+		midP.y = 0.5*(rb.tl().y + rb.br().y);
+		cout << "circle center: " << midP.x << '\t' << midP.y << endl;
+	
+		midP.x = ardrone_pos.x - midP.x;
+		midP.y = ardrone_pos.y - midP.y;
+		geometry_msgs::Point dist;
+		revmeasurement(midP.x, midP.y, dist.x, dist.y, pitch, roll, height);
+		geometry_msgs::Point result;
+		result.x = dist.y;
+		result.y = dist.x;
+		blue_pub.publish(result);
+		//cout << "blue : " << result.x << '\t' << result.y << endl;
+	}
+}
+
+void FindCircles::find_yellow(Mat &img, Mat imgThresholded)
+{
+	for (int i = 0; i < img.rows; ++i)
+	{
+		for (int j = 0; j < img.cols; ++j)
+		{
+			int tmp0 = img.at<Vec3b>(i,j)[0];
+			int tmp1 = img.at<Vec3b>(i,j)[1];
+			int tmp2 = img.at<Vec3b>(i,j)[2];
+			if ((tmp2 > 90 && tmp2 < 180 && tmp1 > 100 && tmp1 < 200 && tmp0 > 0 && tmp0 < 70))
+			//if (tmp2 > 120 && tmp2 < 255 && tmp1 > 0 && tmp1 < 80 && tmp0 > 0 && tmp0 < 80) //red
+			{
+				imgThresholded.at<uchar>(i,j) = 255;
+				continue;
+			}
+			imgThresholded.at<uchar>(i,j) = 0;
+		}
+	}
+
+	//image operation
+	Mat element = getStructuringElement(MORPH_RECT, Size(4,4));
+	morphologyEx(imgThresholded, imgThresholded, MORPH_OPEN, element);
+	morphologyEx(imgThresholded, imgThresholded, MORPH_CLOSE, element);	
+	erode(imgThresholded, imgThresholded, element);
+	dilate(imgThresholded, imgThresholded, element);
+	imgThresholded = 255 - imgThresholded;
+	imshow("yellow", imgThresholded);
+	if (char(waitKey(1)) == 'o')
+		destroyWindow("yellow");
 
 	//find contours
 	vector<vector<Point> > contours;
@@ -227,7 +302,8 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 			int tmp0 = img.at<Vec3b>(i,j)[0];
 			int tmp1 = img.at<Vec3b>(i,j)[1];
 			int tmp2 = img.at<Vec3b>(i,j)[2];
-			if (tmp2 > 120 && tmp2 < 255 && tmp1 > 0 && tmp1 < 80 && tmp0 > 0 && tmp0 < 80)
+			//if (tmp2 > 80 && tmp2 < 180 && tmp1 > 0 && tmp1 < 50 && tmp0 > 0 && tmp0 < 70)
+			if((tmp2-tmp1) >= 50 && (tmp2-tmp0) >= 50)
 			{
 				imgThresholded.at<uchar>(i,j) = 255;
 				continue;
@@ -242,8 +318,8 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 	morphologyEx(imgThresholded, imgThresholded, MORPH_CLOSE, element);	
 	erode(imgThresholded, imgThresholded, element);
 	dilate(imgThresholded, imgThresholded, element);
-	/*imgThresholded = 255 - imgThresholded;
-	imshow("red", imgThresholded);
+	imgThresholded = 255 - imgThresholded;
+	/*imshow("red", imgThresholded);
 	if (char(waitKey(1)) == 'o')
 		destroyWindow("red");*/
 	//find contours
@@ -258,7 +334,7 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 	vector<vector<Point> >::iterator it = contours.begin();
 	while(it != contours.end())
 	{
-		if (contourArea(*it, true) < 500)
+		if (contourArea(*it, true) < 200)
 			it = contours.erase(it);
 		else
 		{
@@ -311,7 +387,7 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 		}
 		//cout << real_msg.point[0].x << '\t' << real_msg.point[0].y << endl;
 		red_image_pub.publish(image_msg);
-		red_real_pub.publish(real_msg);	
+		red_real_pub.publish(real_msg);	//dian xiangduiyu feiji de weizhi
 
 		/*part of correction*/
 		double k;

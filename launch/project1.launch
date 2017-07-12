@@ -2,8 +2,7 @@
 <!-- This is a sample lanuch file, please change it based on your needs -->
 <launch>
 	<node name="pid_control" pkg="ardrone_velocity" type="pid_control"/>
-	<node name="yaw_est" pkg="circlecontrol" type="yaw_estimate" output="screen"/>
     <node name="pos_estimate" pkg="position_estimate" type="pos_estimate" output="screen"/>
-    <node name="find_circle" pkg="position_estimate" type="find_circle" output="screen"/>
+    <node name="find_circle" pkg="position_estimate" type="find_circle"/>
     <node name="pos_control" pkg="circlecontrol" type="pos_control" output="screen"/>
 </launch>

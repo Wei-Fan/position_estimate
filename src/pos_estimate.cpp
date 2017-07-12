@@ -8,6 +8,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <geometry_msgs/Point.h>
 #include "std_msgs/Int8.h"
+#include "std_msgs/Bool.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <vector>
@@ -23,7 +24,7 @@ using namespace std;
 #define PRESET_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/setpoint.csv"
 #define RENEW_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/preset_renew_position.csv"
 #define FEATURE_VEC_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/preset_feature.csv"
-#define POINT_NUM 3
+#define POINT_NUM 9
 
 class Pos_Estimate
 {
@@ -38,7 +39,10 @@ private:
 	ros::Subscriber index_sub;
 	ros::Publisher pos_pub;
 	ros::Publisher renew_pub;
+	ros::Publisher yellow_pub;
+	ros::Publisher blue_pub;
 
+	void blueCallback(const geometry_msgs::Point &msg);
 	void yellowCallback(const geometry_msgs::Point &msg);
 	void redCallback(const position_estimate::points &msg);
 	void posCallback(const ardrone_autonomy::Navdata &msgs);
@@ -54,6 +58,7 @@ private:
 	bool isRenew;
 	bool isYellowFound;
 	int current_index;
+	int next_feature_index;
 	geometry_msgs::Point current_pos;
 	geometry_msgs::Point current_v;
 	geometry_msgs::Point preset_pos;
@@ -66,17 +71,21 @@ Pos_Estimate::Pos_Estimate()
 	yellow_sub = node.subscribe("/yellow_point", 1, &Pos_Estimate::yellowCallback, this);
 	red_sub = node.subscribe("/red_real_points", 1, &Pos_Estimate::redCallback, this);
 	pos_sub = node.subscribe("/ardrone/navdata", 1, &Pos_Estimate::posCallback, this);
-	correct_sub = node.subscribe("/delt", 1, &Pos_Estimate::correctCallback, this);
+	//correct_sub = node.subscribe("/delt", 1, &Pos_Estimate::correctCallback, this);
 	index_sub = node.subscribe("/index", 1, &Pos_Estimate::indexCallback, this);
-	pos_pub = node.advertise<geometry_msgs::Point>("/ardrone_position", 1000);
-	renew_pub = node.advertise<position_estimate::renew>("/is_renew", 1000);
+	pos_pub = node.advertise<geometry_msgs::Point>("/ardrone_position", 2);
+	renew_pub = node.advertise<position_estimate::renew>("/is_renew", 2);
+	yellow_pub = node.advertise<std_msgs::Bool>("/is_yellow", 2);
 	read_csv(RENEW_POS_PATH, renew_points);
 	read_csv(FEATURE_VEC_PATH, feature_vectors);
 	read_csv(PRESET_POS_PATH, preset_position);
-	current_index = 0;
+	//current_index = 0;
+	current_pos.x = 0;
+	current_pos.y = 0;
+	next_feature_index = 0;
 	enableRenew = false;
 	isRenew = true;
-	isYellowFound = false;
+	isYellowFound = false;//false; //true;//test
 }
 
 void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
@@ -90,14 +99,18 @@ void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
 		current_pos.x = 0;
 		current_pos.y = 0;
 	}
-	float dt = (msg.tm - last_time)/1000000.0;
-	last_time = msg.tm;
+	if (fabs(msg.tm-last_time) <= 1000000)
+	{
+		float dt = (msg.tm - last_time)/1000000.0;
+		last_time = msg.tm;
 
-	current_v.x = msg.vx;
-	current_v.y = msg.vy;
-	current_pos.x += msg.vx * dt/1000.0;
-	current_pos.y += msg.vy * dt/1000.0;
-	pos_pub.publish(current_pos);	//^^^
+		current_v.x = msg.vx;
+		current_v.y = msg.vy;
+		current_pos.x += msg.vx * dt/1000.0; //&&&&&
+		current_pos.y += msg.vy * dt/1000.0;
+	}
+	pos_pub.publish(current_pos);//^^^
+	//cout << "position = " << current_pos.x << '\t' << current_pos.y << endl;
 }
 
 void Pos_Estimate::indexCallback(const std_msgs::Int8 &msg)
@@ -121,8 +134,8 @@ void Pos_Estimate::yellowCallback(const geometry_msgs::Point &msg)
 	if (!isYellowFound)
 	{
 		float d = sqrt(msg.x*msg.x + msg.y*msg.y);
-		float v = sqrt(current_v.x*current_v.x+current_v.y*current_v.y);
-		if ((d >= 0.2) )//|| (v >= 0.4))
+		//float v = sqrt(current_v.x*current_v.x+current_v.y*current_v.y);
+		if ((d >= 0.15) )//|| (v >= 0.4))
 		{
 			current_pos.x = -msg.x;
 			current_pos.y = -msg.y;
@@ -130,119 +143,114 @@ void Pos_Estimate::yellowCallback(const geometry_msgs::Point &msg)
 		} else {
 			isYellowFound = true;
 			cout << "isYellowFound-----------------------------------\n\n";
-			position_estimate::renew r;
-			isRenew = false;
-			r.isRenew = isRenew;
-			renew_pub.publish(r);
+			std_msgs::Bool b;
+			b.data = true;
+			yellow_pub.publish(b);
 		}
 	}
 }
 
 void Pos_Estimate::redCallback(const position_estimate::points &msg)
 {
+	//cout << "redCallback start!\n";
 	if (isYellowFound == true)
 	{
-		/*get the feature vector according to image*/
-		vector<float> x;
-		vector<float> y;
-		vector<float> red_feature;
-		for (int i = 0; i < msg.point.size(); ++i)
+		vector<vector<float> > feature_vec(POINT_NUM);
+		for (int i = 0; i < feature_vectors.rows; ++i)
 		{
-			x.push_back(msg.point[i].x);
-			y.push_back(msg.point[i].y);
+			for (int j = 0; j < feature_vectors.cols; ++j)
+			{
+				feature_vec[i].push_back(feature_vectors.at<float>(i,j));
+			}
 		}
-		//cout << "-----------------------------------\n";
-		//cout << Mat(x) << endl << Mat(y) << endl;
-		p_feature_extraction(x, y, 30, red_feature);
 
-		/*a straight line or not*/
-		bool line_flag = 0;
-		vector<int> c;
-		for (int i = 0; i < red_feature.size(); ++i)
+		//cout << "453!\n";
+
+		int p_index = msg.point.size();
+		int f_index = feature_vec.size(); 
+		int min_p, min2_p;
+		float min_d = 100;
+		float min2_d = 100;
+
+		for (int i = 0; i < p_index; ++i)
 		{
-			if (red_feature[i] != 0)
-				c.push_back(i);
-		}	
-		if (c.size() == 2 && c.back()-c.front() == 15)
-		{
-			line_flag = 1;
-			position_estimate::renew r;
-			r.isRenew = false;
-			renew_pub.publish(r);
-		} else {
-
-			/*convert feature vectors to 2D vector*/
-			vector<vector<float> > feature_vec(POINT_NUM);
-			for (int i = 0; i < feature_vectors.rows; ++i)
+			//point list
+			vector<float> p_vec_x;
+			vector<float> p_vec_y;
+			p_vec_x.push_back(msg.point[i].x);
+			p_vec_y.push_back(msg.point[i].y);
+			for (int k = 0; k < p_index; ++k)
 			{
-				for (int j = 0; j < feature_vectors.cols; ++j)
+				float dx = msg.point[i].x-msg.point[k].x;
+				float dy = msg.point[i].y-msg.point[k].y;
+				float d = sqrt(dx*dx + dy*dy);
+				if (d <= 0.3 && k!=i)
 				{
-					feature_vec[i].push_back(feature_vectors.at<float>(i,j));
-				}
-			}	
-
-			/*get the current point number by comparing feature vector distances*/
-			vector<float> distant;
-			vector<int> distant_num;
-			float angle;
-			for (int i = 0; i < feature_vec.size(); ++i)
-			{
-				float d = p_feature_sdistance(feature_vec[i], red_feature, 30, angle);
-				d += 0.2*(renew_points.at<float>(i,0) - current_pos.x);
-				distant.push_back(d);
-				distant_num.push_back(i);
-			}	
-			current_pos.z = angle;
-
-			/*find the most 2 possible points*/
-			for (int i = 0; i < POINT_NUM; ++i)
-			{
-				for (int j = 0; j < POINT_NUM-i-1; ++j)
-				{
-					if (distant[j] > distant[j+1])
-					{
-						float tmp = distant[j];
-						int tmp_num = distant_num[j];
-						distant[j] = distant[j+1];
-						distant_num[j] = distant_num[j+1];
-						distant[j+1] = tmp;
-						distant_num[j+1] = tmp_num;
-					}
+					p_vec_x.push_back(msg.point[k].x);
+					p_vec_y.push_back(msg.point[k].y);
 				}
 			}
-			/*condition for using feature match*/
+
+			//cout << "66!\n";
+			if (p_vec_x.size() >= 3)
+			{
+				vector<float> red_feature;
+				p_feature_extraction(p_vec_x, p_vec_y, 30, red_feature);
+				float angle;
+				float f_d = p_feature_sdistance(feature_vec[next_feature_index], red_feature, 30, angle);
+				float f_dx = (renew_points.at<float>(next_feature_index,0) - current_pos.x);
+				float f_dy = (renew_points.at<float>(next_feature_index,1) - current_pos.y); 
+				//f_d += 0.2*sqrt(f_dx*f_dx + f_dy*f_dy);
+				//cout << "No." << i << ',' << j << endl;
+				//cout << "distant = " << f_d << endl;
+				if (f_d < min_d)
+				{
+					min2_d = min_d;
+					min_d = f_d;
+					min2_p = min_p;
+					min_p = i;
+				} else if (f_d < min2_d)
+				{
+					min2_d = f_d;
+					min2_p = i;
+				}
+			}
+		}
+
+		/*condition for using feature match*/
+
+		if(min_d < 100.0)
+		{
+			//cout << "match raw position : " << renew_points.at<float>(min_p_f,0) << '\t' <<renew_points.at<float>(min2_p_f,1) << endl;
 			//cout << "--------------------------------------\n";
-			if (fabs(distant[0])/fabs(distant[1]) > 0.5 || distant[0] > 1.0)//(fabs(distant[0]-distant[1]) <= 0.4)//wait for trying  //^^^^
+			if (min_d/min2_d > 0.4 || min_d > 1.2)//(fabs(distant[0]-distant[1]) <= 0.4)//wait for trying  //^^^^
 			{	
 				position_estimate::renew r;
 				r.isRenew = false;
 				renew_pub.publish(r);
 			} else {
-				//cout << msg.point[0].x << '\t' << msg.point[0].y << endl;
-				cout << "current point : " << distant_num[0] << '\t' << distant_num[1] << endl;
-				cout << "distant : " << distant[0] << '\t' << distant[1] << endl;
-				
 				/*publish current position*/
-				current_pos.x = -msg.point[0].x + renew_points.at<float>(distant_num[0],0);
-				current_pos.y = -msg.point[0].y + renew_points.at<float>(distant_num[0],1);
-				cout << "match position : " << current_pos.x << '\t' << current_pos.y << endl;
+				current_pos.x = -msg.point[min_p].x + renew_points.at<float>(next_feature_index,0);
+				current_pos.y = -msg.point[min_p].y + renew_points.at<float>(next_feature_index,1);
+				//cout << "*************************\nmatch position : " << current_pos.x << '\t' << current_pos.y << endl;
+				cout << "*********************************\n";
+				cout << "*******feature distant : " << min_d << '\t' << min2_d << endl;
+				cout << "*******next feature index = " << next_feature_index << endl;
+
+				position_estimate::renew r;
+				isRenew = true;
+				r.isRenew = isRenew;
+				r.index = next_feature_index;
 				
-				float d = sqrt(msg.point[0].x*msg.point[0].x + msg.point[0].y*msg.point[0].y);
-				float v = sqrt(current_v.x*current_v.x+current_v.y*current_v.y);
-				if ((d >= 0.1) || (v >= 0.05))
+				if (next_feature_index < POINT_NUM)
 				{
-					position_estimate::renew r;
-					isRenew = true;
-					r.isRenew = isRenew;
-					r.index = distant_num[0];
-					renew_pub.publish(r);
-				} else {
-					position_estimate::renew r;
-					r.isRenew = false;
-					renew_pub.publish(r);
+					next_feature_index++;
 				}
+				cout << "^^^^^^^^^match feature index = " << next_feature_index << endl;
+				renew_pub.publish(r);
 			}
 		}
+		
 	}
 }
 

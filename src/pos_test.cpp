@@ -47,7 +47,7 @@ private:
 
 Test::Test()
 {
-	//get_feature_vector();
+	get_feature_vector();
 	//get_measure_point();
 	green_sub = node.subscribe("green_point", 1, &Test::greenCallback, this);
 	red_sub = node.subscribe("red_real_points", 1, &Test::redCallback, this);
@@ -106,24 +106,112 @@ void Test::get_measure_point()
 
 void Test::get_feature_vector()
 {
+	Mat img = imread("/home/wade/catkin_ws/src/position_estimate/test_file/5.jpg");
+	Mat imgThresholded = Mat(img.size(), CV_8UC1);
+
 	vector<vector<float> > feature_vectors;
 	vector<float> x;
 	vector<float> y;
-	float threshold = 0.3;//determined by image size and height
 
-	/*measure and input points' coordinate according to points in fleid*/
-	Mat xy = Mat(Size(2,POINT_NUM), CV_32FC1);
-	read_csv(MEASURE_POS, xy);
-	cout << format(xy, Formatter::FMT_CSV) << endl;
-	for (int i = 0; i < xy.rows; ++i)
+	for (int i = 0; i < img.rows; ++i)
 	{
-		x.push_back(xy.at<Vec2f>(i,0)[0]);
-		y.push_back(xy.at<Vec2f>(i,0)[1]);
+		for (int j = 0; j < img.cols; ++j)
+		{
+			int tmp0 = img.at<Vec3b>(i,j)[0];
+			int tmp1 = img.at<Vec3b>(i,j)[1];
+			int tmp2 = img.at<Vec3b>(i,j)[2];
+			//if (tmp2 > 80 && tmp2 < 180 && tmp1 > 0 && tmp1 < 50 && tmp0 > 0 && tmp0 < 70)
+			if((tmp2-tmp1) >= 40 && (tmp2-tmp0) >= 40)
+			{
+				imgThresholded.at<uchar>(i,j) = 255;
+				continue;
+			}
+			imgThresholded.at<uchar>(i,j) = 0;
+		}
 	}
-	//cout << Mat(x) << "\n" << Mat(y) << endl;
-    /*get the feature vectors*/
-    p_feature_calculate(x, y, threshold, 30, feature_vectors);
-   	save_csv(feature_vectors, FEATURE_VEC);
+
+	//image operation
+	Mat element = getStructuringElement(MORPH_RECT, Size(4,4));
+	morphologyEx(imgThresholded, imgThresholded, MORPH_OPEN, element);
+	morphologyEx(imgThresholded, imgThresholded, MORPH_CLOSE, element);	
+	erode(imgThresholded, imgThresholded, element);
+	dilate(imgThresholded, imgThresholded, element);
+	imgThresholded = 255 - imgThresholded;
+	imshow("red", imgThresholded);
+	if (char(waitKey(1)) == 'o')
+		destroyWindow("red");
+	//find contours
+	vector<vector<Point> > contours;
+	vector<Vec4i> hierarchy;
+	vector<Rect> rb;
+	position_estimate::points real_msg;
+	position_estimate::points image_msg;
+	findContours(imgThresholded, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
+	
+	//erase unqualified contours
+	vector<vector<Point> >::iterator it = contours.begin();
+	while(it != contours.end())
+	{
+		if (contourArea(*it, true) < 200)
+			it = contours.erase(it);
+		else
+		{
+			Rect r = boundingRect(Mat(*it));
+			rb.push_back(r);
+			rectangle(img, r, Scalar(0, 0, 255), 3);//testing
+			++it;
+		}
+	}
+
+	if (!rb.empty())
+	{
+		for (int i = 1; i < rb.size(); ++i)
+		{
+			double d0 = pow(0.5*(rb[0].tl().x+rb[0].br().x-img.cols),2)+pow(0.5*(rb[0].tl().y+rb[0].br().y-img.rows),2);
+			double di = pow(0.5*(rb[i].tl().x+rb[i].br().x-img.cols),2)+pow(0.5*(rb[i].tl().y+rb[i].br().y-img.rows),2);
+		
+			if (d0 > di)
+			{
+				Rect tmp;
+				tmp = rb[0];
+				rb[0] = rb[i];
+				rb[i] = tmp;
+			}
+		}
+		rectangle(img, rb[0], Scalar(255, 0, 0), 3);
+		for (int i = 0; i < rb.size(); ++i)
+		{
+			float h = 0.8;
+			float img_data_x = 0.5*(rb[i].tl().x + rb[i].br().x) - 0.5*img.cols;
+			float img_data_y = 0.5*(rb[i].tl().y + rb[i].br().y) - 0.5*img.rows;
+			float real_data_x = (1.55 * h + 0.01078) / 1000 * img_data_x;
+			float real_data_y = (1.55 * h + 0.01078) / 1000 * img_data_y;
+			float result_x = -real_data_y;
+			float result_y = -real_data_x;
+			x.push_back(result_x);
+			y.push_back(result_y);
+		}
+	}
+
+	imshow("init_img", img);
+	waitKey(0);
+
+	vector<float> red_feature;
+	p_feature_extraction(x, y, 30, red_feature);
+   	
+	ofstream outFile;
+	outFile.open("/home/wade/catkin_ws/src/position_estimate/test_file/feature_vec_test.csv", ios::out);
+	for (int i = 0; i < red_feature.size(); ++i)
+	{
+		if (i != red_feature.size()-1)
+			outFile << red_feature[i] << ',';
+		else
+			outFile << red_feature[i] << endl;
+
+	}
+	outFile.close();
+   	destroyWindow("init_img");
+   	cout << "save!\n";
 } 
 
 bool Test::save_csv(const vector<vector<float> > &v, char *filename)
@@ -186,9 +274,9 @@ void Test::greenCallback(const geometry_msgs::Point &msg)
 
 void Test::redCallback(const position_estimate::points &msg)
 {
-		cout << 'A' << endl;
-	 ros::spin();
-	 cout << 'B' << endl;
+	cout << 'A' << endl;
+	ros::spin();
+	cout << 'B' << endl;
 }
 
 int main(int argc, char **argv)
