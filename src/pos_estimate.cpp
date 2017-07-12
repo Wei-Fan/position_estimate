@@ -21,10 +21,12 @@
 using namespace cv;
 using namespace std;
 
-#define PRESET_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/setpoint.csv"
+//#define PRESET_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/setpoint.csv"
 #define RENEW_POS_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/preset_renew_position.csv"
 #define FEATURE_VEC_PATH "/home/wade/catkin_ws/src/position_estimate/test_file/preset_feature.csv"
 #define POINT_NUM 9
+#define BLUE_X -0.00044051
+#define BLUE_Y 0.635
 
 class Pos_Estimate
 {
@@ -32,31 +34,31 @@ public:
 	Pos_Estimate();
 private:
 	ros::NodeHandle node;
+	ros::Subscriber blue_sub;
 	ros::Subscriber yellow_sub;
 	ros::Subscriber red_sub;
 	ros::Subscriber pos_sub;
-	ros::Subscriber correct_sub;
+	//ros::Subscriber correct_sub;
 	ros::Subscriber index_sub;
 	ros::Publisher pos_pub;
 	ros::Publisher renew_pub;
 	ros::Publisher yellow_pub;
-	ros::Publisher blue_pub;
 
 	void blueCallback(const geometry_msgs::Point &msg);
 	void yellowCallback(const geometry_msgs::Point &msg);
 	void redCallback(const position_estimate::points &msg);
 	void posCallback(const ardrone_autonomy::Navdata &msgs);
-	void correctCallback(const geometry_msgs::Point &msgs);
-	void indexCallback(const std_msgs::Int8 &msg);
+	//void correctCallback(const geometry_msgs::Point &msgs);
+	//void indexCallback(const std_msgs::Int8 &msg);
 	bool read_csv(char *filepath, Mat &image);
 
 	Mat renew_points = Mat(Size(2,POINT_NUM), CV_32FC1);
 	Mat feature_vectors = Mat(Size(30,POINT_NUM), CV_32FC1);
-	Mat preset_position = Mat(Size(4,292), CV_32FC1);
+	//Mat preset_position = Mat(Size(4,292), CV_32FC1);
 
-	bool enableRenew;
 	bool isRenew;
 	bool isYellowFound;
+	bool allowFindBlue;
 	int current_index;
 	int next_feature_index;
 	geometry_msgs::Point current_pos;
@@ -68,24 +70,25 @@ private:
 
 Pos_Estimate::Pos_Estimate()
 {
+	blue_sub = node.subscribe("/blue_point", 1, &Pos_Estimate::blueCallback, this);
 	yellow_sub = node.subscribe("/yellow_point", 1, &Pos_Estimate::yellowCallback, this);
 	red_sub = node.subscribe("/red_real_points", 1, &Pos_Estimate::redCallback, this);
 	pos_sub = node.subscribe("/ardrone/navdata", 1, &Pos_Estimate::posCallback, this);
 	//correct_sub = node.subscribe("/delt", 1, &Pos_Estimate::correctCallback, this);
-	index_sub = node.subscribe("/index", 1, &Pos_Estimate::indexCallback, this);
+	//index_sub = node.subscribe("/index", 1, &Pos_Estimate::indexCallback, this);
 	pos_pub = node.advertise<geometry_msgs::Point>("/ardrone_position", 2);
 	renew_pub = node.advertise<position_estimate::renew>("/is_renew", 2);
 	yellow_pub = node.advertise<std_msgs::Bool>("/is_yellow", 2);
 	read_csv(RENEW_POS_PATH, renew_points);
 	read_csv(FEATURE_VEC_PATH, feature_vectors);
-	read_csv(PRESET_POS_PATH, preset_position);
+	//read_csv(PRESET_POS_PATH, preset_position);
 	//current_index = 0;
 	current_pos.x = 0;
 	current_pos.y = 0;
 	next_feature_index = 0;
-	enableRenew = false;
 	isRenew = true;
 	isYellowFound = false;//false; //true;//test
+	allowFindBlue = false;
 }
 
 void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
@@ -113,12 +116,12 @@ void Pos_Estimate::posCallback(const ardrone_autonomy::Navdata &msg)
 	//cout << "position = " << current_pos.x << '\t' << current_pos.y << endl;
 }
 
-void Pos_Estimate::indexCallback(const std_msgs::Int8 &msg)
+/*void Pos_Estimate::indexCallback(const std_msgs::Int8 &msg)
 {
 	current_index = msg.data;
-}
+}*/
 
-void Pos_Estimate::correctCallback(const geometry_msgs::Point &msg)
+/*void Pos_Estimate::correctCallback(const geometry_msgs::Point &msg)
 {
 	if (!isRenew)
 	{
@@ -126,6 +129,16 @@ void Pos_Estimate::correctCallback(const geometry_msgs::Point &msg)
 		preset_pos.y = preset_position.at<float>(current_index, 3);
 		current_pos.x = current_pos.x - beta * (current_pos.x - preset_pos.x - msg.x);
 		current_pos.y = current_pos.y - beta * (current_pos.y - preset_pos.y - msg.y);	
+	}
+}*/
+
+void Pos_Estimate::blueCallback(const geometry_msgs::Point &msg)
+{
+	if (allowFindBlue)
+	{
+		current_pos.x = -msg.x + BLUE_X;
+		current_pos.y = -msg.y + BLUE_Y;
+		ROS_INFO("this blue %f, %f", current_pos.x, current_pos.y);
 	}
 }
 
@@ -153,7 +166,7 @@ void Pos_Estimate::yellowCallback(const geometry_msgs::Point &msg)
 void Pos_Estimate::redCallback(const position_estimate::points &msg)
 {
 	//cout << "redCallback start!\n";
-	if (isYellowFound == true)
+	if (isYellowFound == true && !allowFindBlue)
 	{
 		vector<vector<float> > feature_vec(POINT_NUM);
 		for (int i = 0; i < feature_vectors.rows; ++i)
@@ -242,9 +255,10 @@ void Pos_Estimate::redCallback(const position_estimate::points &msg)
 				r.isRenew = isRenew;
 				r.index = next_feature_index;
 				
-				if (next_feature_index < POINT_NUM)
+				next_feature_index++;
+				if (next_feature_index == POINT_NUM)
 				{
-					next_feature_index++;
+					allowFindBlue = true;
 				}
 				cout << "^^^^^^^^^match feature index = " << next_feature_index << endl;
 				renew_pub.publish(r);

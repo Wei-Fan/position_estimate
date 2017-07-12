@@ -36,7 +36,7 @@ private:
 	ros::Publisher yellow_pub;
 	ros::Publisher red_real_pub;
 	ros::Publisher red_image_pub;
-	ros::Publisher correct_pub;
+	//sros::Publisher correct_pub;
 
 	void imageCallback(const sensor_msgs::Image &msg);
 	void altitudeCallback(const ardrone_autonomy::navdata_altitude &msg);
@@ -67,7 +67,7 @@ FindCircles::FindCircles()
 	yellow_pub = node.advertise<geometry_msgs::Point>("yellow_point", 1000); //the message of centers is uncertain.
 	red_real_pub = node.advertise<position_estimate::points>("red_real_points", 1000);
 	red_image_pub = node.advertise<position_estimate::points>("red_image_points", 1000);
-	correct_pub = node.advertise<geometry_msgs::Point>("delt", 1000);
+	//correct_pub = node.advertise<geometry_msgs::Point>("delt", 1000);
 	//Mat src_img = imread("/home/wade/catkin_ws/src/find_circles/src/t.jpg", 1);//testing
 	//image_process(src_img);//testing 
 }
@@ -162,7 +162,7 @@ void FindCircles::find_blue(Mat &img, Mat imgThresholded)
 			int tmp0 = img.at<Vec3b>(i,j)[0];
 			int tmp1 = img.at<Vec3b>(i,j)[1];
 			int tmp2 = img.at<Vec3b>(i,j)[2];
-			if ((tmp2 > 90 && tmp2 < 180 && tmp1 > 100 && tmp1 < 200 && tmp0 > 0 && tmp0 < 70))
+			if ((tmp0-tmp1 > 20 && tmp0-tmp2 > 50 && tmp0 > 80))
 			//if (tmp2 > 120 && tmp2 < 255 && tmp1 > 0 && tmp1 < 80 && tmp0 > 0 && tmp0 < 80) //red
 			{
 				imgThresholded.at<uchar>(i,j) = 255;
@@ -219,7 +219,7 @@ void FindCircles::find_blue(Mat &img, Mat imgThresholded)
 		result.x = dist.y;
 		result.y = dist.x;
 		blue_pub.publish(result);
-		//cout << "blue : " << result.x << '\t' << result.y << endl;
+		cout << "blue found: " << result.x << '\t' << result.y << endl;
 	}
 }
 
@@ -390,7 +390,7 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 		red_real_pub.publish(real_msg);	//dian xiangduiyu feiji de weizhi
 
 		/*part of correction*/
-		double k;
+		/*double k;
 		double b;
 		double r;
 		geometry_msgs::Point foot;
@@ -402,7 +402,7 @@ void FindCircles::find_red(Mat &img, Mat imgThresholded)
 			//cout << "foot : " << foot.x << '\t' << foot.y << endl;
 			if (fabs(r) >= 0.5)
 				correct_pub.publish(foot);
-		}
+		}*/
 	}
 }
 
